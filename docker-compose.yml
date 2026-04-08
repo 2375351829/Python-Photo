@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: crawler_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://crawler:crawler123@postgres:5432/crawler_db
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-secret-key-change-in-production
+      - CORS_ORIGINS=http://localhost,http://localhost:80
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+    networks:
+      - crawler_network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: crawler_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - crawler_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: crawler_postgres
+    environment:
+      - POSTGRES_USER=crawler
+      - POSTGRES_PASSWORD=crawler123
+      - POSTGRES_DB=crawler_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - crawler_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: crawler_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - crawler_network
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: crawler_celery_worker
+    command: celery -A backend.app.core.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://crawler:crawler123@postgres:5432/crawler_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+    networks:
+      - crawler_network
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: crawler_celery_beat
+    command: celery -A backend.app.core.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://crawler:crawler123@postgres:5432/crawler_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crawler_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  crawler_network:
+    driver: bridge
